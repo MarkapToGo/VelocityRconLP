@@ -114,3 +114,7 @@ hs_err_pid*
 lib/
 # Project exclude paths
 /target/
+
+# Gradle files
+.gradle/
+build/
