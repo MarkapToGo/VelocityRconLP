@@ -113,6 +113,10 @@ public class RconHandler extends SimpleChannelInboundHandler<ByteBuf> {
             message = Utils.stripColor(message);
         }
 
+        // Log the payload and message for debugging
+        VelocityRcon.getInstance().getLogger().info("Received RCON command: " + payload);
+        VelocityRcon.getInstance().getLogger().info("RCON command response: " + message);
+
         sendLargeResponse(ctx, requestId, message);
 
         if (stop) {
