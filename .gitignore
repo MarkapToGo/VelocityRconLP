@@ -118,3 +118,5 @@ lib/
 # Gradle files
 .gradle/
 build/
+
+!gradle-wrapper.jar
