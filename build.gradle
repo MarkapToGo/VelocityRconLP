@@ -4,7 +4,7 @@ plugins {
 
 group 'me.uniodex.velocityrcon'
 archivesBaseName = "Tribufu-VelocityRcon"
-version '1.2'
+version '1.2.0'
 
 sourceCompatibility = JavaVersion.VERSION_15
 targetCompatibility = JavaVersion.VERSION_15
