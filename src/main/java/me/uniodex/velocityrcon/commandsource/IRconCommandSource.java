@@ -4,6 +4,7 @@ import com.velocitypowered.api.permission.PermissionFunction;
 import com.velocitypowered.api.permission.Tristate;
 import com.velocitypowered.api.proxy.ProxyServer;
 import lombok.Getter;
+import me.uniodex.velocityrcon.VelocityRcon;
 import me.uniodex.velocityrcon.utils.Utils;
 import net.kyori.adventure.identity.Identity;
 import net.kyori.adventure.text.Component;
@@ -16,7 +17,7 @@ import static com.velocitypowered.api.permission.PermissionFunction.ALWAYS_TRUE;
 public class IRconCommandSource implements RconCommandSource {
 
     private final StringBuffer buffer = new StringBuffer();
-    private PermissionFunction permissionFunction = ALWAYS_TRUE;
+    private final PermissionFunction permissionFunction = ALWAYS_TRUE;
 
     @Getter
     private ProxyServer server;
@@ -28,7 +29,7 @@ public class IRconCommandSource implements RconCommandSource {
     private void addToBuffer(Component message) {
         String txt = LegacyComponentSerializer.legacySection().serialize(message);
         txt = Utils.stripMcColor(txt);
-        if (buffer.length() != 0)
+        if (!buffer.isEmpty())
             buffer.append("\n");
         buffer.append(txt);
     }

@@ -1,16 +1,19 @@
 package me.uniodex.velocityrcon.server;
 
+import net.luckperms.api.LuckPerms;
+import net.luckperms.api.LuckPermsProvider;
+import net.luckperms.api.node.Node;
+
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import me.uniodex.velocityrcon.VelocityRcon;
 import me.uniodex.velocityrcon.commandsource.IRconCommandSource;
-import me.uniodex.velocityrcon.utils.Utils;
 import net.kyori.adventure.text.format.NamedTextColor;
 
-import java.io.IOException;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 public class RconHandler extends SimpleChannelInboundHandler<ByteBuf> {
 
@@ -20,17 +23,8 @@ public class RconHandler extends SimpleChannelInboundHandler<ByteBuf> {
     private static final byte TYPE_LOGIN = 3;
 
     private final String password;
-
     private boolean loggedIn = false;
-
-    /**
-     * The {@link RconServer} this handler belongs to.
-     */
-    private RconServer rconServer;
-
-    /**
-     * The {@link IRconCommandSource} for this connection.
-     */
+    private final RconServer rconServer;
     private final IRconCommandSource commandSender;
 
     public RconHandler(RconServer rconServer, String password) {
@@ -40,7 +34,7 @@ public class RconHandler extends SimpleChannelInboundHandler<ByteBuf> {
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, ByteBuf buf) throws Exception {
+    protected void channelRead0(ChannelHandlerContext ctx, ByteBuf buf) {
         buf = buf.order(ByteOrder.LITTLE_ENDIAN);
         if (buf.readableBytes() < 8) {
             return;
@@ -64,12 +58,10 @@ public class RconHandler extends SimpleChannelInboundHandler<ByteBuf> {
         }
     }
 
-    private void handleLogin(ChannelHandlerContext ctx, String payload, int requestId) throws IOException {
+    private void handleLogin(ChannelHandlerContext ctx, String payload, int requestId) {
         if (password.equals(payload)) {
             loggedIn = true;
-
             sendResponse(ctx, requestId, TYPE_COMMAND, "");
-
             VelocityRcon.getInstance().getLogger().info("Rcon connection from [{}]", ctx.channel().remoteAddress());
         } else {
             loggedIn = false;
@@ -77,50 +69,100 @@ public class RconHandler extends SimpleChannelInboundHandler<ByteBuf> {
         }
     }
 
+    @SuppressWarnings("LoggingSimilarMessage")
     private void handleCommand(ChannelHandlerContext ctx, String payload, int requestId) {
         if (!loggedIn) {
             sendResponse(ctx, FAILURE, TYPE_COMMAND, "");
             return;
         }
-        boolean stop = false;
-        boolean success;
-        String message;
 
-        if (payload.equalsIgnoreCase("end") || payload.equalsIgnoreCase("stop")) {
-            stop = true;
-            success = true;
-            message = "Shutting down the proxy...";
-        } else {
-            try {
-                success = rconServer.getServer().getCommandManager().executeAsync(commandSender, payload).join();
-                if (success) {
-                    message = commandSender.flush();
-                } else {
-                    message = NamedTextColor.RED + "No such command";
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-                success = false;
-                message = NamedTextColor.RED + "Unknown error";
+        try {
+            VelocityRcon.getInstance().getLogger().info("Executing RCON command: {}", payload);
+
+            if (payload.equalsIgnoreCase("end") || payload.equalsIgnoreCase("stop")) {
+                String shutdownMessage = "Shutting down the proxy...";
+                sendLargeResponse(ctx, requestId, shutdownMessage);
+                rconServer.getServer().shutdown();
+                return;
             }
-        }
 
-        if (!success) {
-            message = String.format("Error executing: %s (%s)", payload, message);
-        }
+            if (payload.startsWith("lpv")) {
+                LuckPerms luckPerms = LuckPermsProvider.get();
+                String command = payload.substring(4).trim();
 
-        if (!VelocityRcon.getInstance().isRconColored()) {
-            message = Utils.stripColor(message);
-        }
+                if (command.equalsIgnoreCase("help")) {
+                    String helpMessage = "Available commands: lpv help, lpv user [uuid] parent add [group], lpv user [uuid] info";
+                    sendLargeResponse(ctx, requestId, helpMessage);
+                    return;
+                }
 
-        // Log the payload and message for debugging
-        VelocityRcon.getInstance().getLogger().info("Received RCON command: " + payload);
-        VelocityRcon.getInstance().getLogger().info("RCON command response: " + message);
+                if (command.startsWith("user")) {
+                    String[] parts = command.split(" ");
+                    if (parts.length >= 3) {
+                        String uuidString = parts[1];
+                        UUID uuid = UUID.fromString(uuidString);
+                        String action = parts[2];
 
-        sendLargeResponse(ctx, requestId, message);
+                        if (action.equalsIgnoreCase("parent") && parts.length == 5 && parts[3].equalsIgnoreCase("add")) {
+                            String group = parts[4];
+                            var userManager = luckPerms.getUserManager();
+                            var user = userManager.loadUser(uuid).join();
 
-        if (stop) {
-            rconServer.getServer().shutdown();
+                            try {
+                                // Remove existing group nodes
+                                user.data().clear(node -> node.getKey().startsWith("group."));
+
+                                // Add new group node
+                                user.data().add(Node.builder("group." + group)
+                                        .value(true)
+                                        .build());
+
+                                // Set as primary group
+                                user.setPrimaryGroup(group);
+
+                                // Save changes
+                                userManager.saveUser(user).join();
+
+                                String responseMessage = "Added user " + uuidString + " to group " + group;
+                                sendLargeResponse(ctx, requestId, responseMessage);
+                            } catch (Exception e) {
+                                String errorMessage = "Failed to add group: " + e.getMessage();
+                                VelocityRcon.getInstance().getLogger().error(errorMessage, e);
+                                sendLargeResponse(ctx, requestId, errorMessage);
+                            }
+                            return;
+                        }
+
+                        if (action.equalsIgnoreCase("info")) {
+                            var user = luckPerms.getUserManager().loadUser(uuid).join();
+
+                            StringBuilder userInfo = new StringBuilder("User " + uuidString + " info:\n");
+                            userInfo.append("Primary Group: ").append(user.getPrimaryGroup() != null ? user.getPrimaryGroup() : "N/A").append("\n");
+
+                            var permissionData = user.getCachedData().getPermissionData().getPermissionMap();
+                            userInfo.append("Permissions: ").append(permissionData != null ? permissionData.toString() : "None");
+
+                            sendLargeResponse(ctx, requestId, userInfo.toString());
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Execute other commands
+            boolean success = rconServer.getServer().getCommandManager().executeAsync(commandSender, payload).join();
+            String responseMessage = commandSender.flush();
+
+            if (!success) {
+                responseMessage = "Error executing: " + payload + " (" + responseMessage + ")";
+            }
+
+            sendLargeResponse(ctx, requestId, responseMessage);
+
+        } catch (Exception e) {
+            VelocityRcon.getInstance().getLogger().error("Error processing RCON command", e);
+            String errorMessage = "Error: " + e.getMessage();
+            sendLargeResponse(ctx, requestId, errorMessage);
         }
     }
 
@@ -132,21 +174,21 @@ public class RconHandler extends SimpleChannelInboundHandler<ByteBuf> {
         buf.writeByte(0);
         buf.writeByte(0);
         ctx.write(buf);
+        ctx.flush(); // Explicitly flush the buffer
     }
 
     private void sendLargeResponse(ChannelHandlerContext ctx, int requestId, String payload) {
-        if (payload.length() == 0) {
+        if (payload == null || payload.isEmpty()) {
             sendResponse(ctx, requestId, TYPE_RESPONSE, "");
             return;
         }
 
         int start = 0;
         while (start < payload.length()) {
-            int length = payload.length() - start;
-            int truncated = Math.min(length, 2048);
-
-            sendResponse(ctx, requestId, TYPE_RESPONSE, payload.substring(start, truncated));
-            start += truncated;
+            int length = Math.min(payload.length() - start, 2048);
+            sendResponse(ctx, requestId, TYPE_RESPONSE, payload.substring(start, start + length));
+            start += length;
         }
+        ctx.flush(); // Ensure final flush after all chunks
     }
 }

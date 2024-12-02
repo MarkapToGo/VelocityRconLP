@@ -3,7 +3,7 @@ plugins {
 }
 
 group 'me.uniodex.velocityrcon'
-archivesBaseName = "Tribufu-VelocityRcon"
+archivesBaseName = "Markap-VelocityRcon"
 version '1.2.0'
 
 sourceCompatibility = JavaVersion.VERSION_15
@@ -19,5 +19,6 @@ dependencies {
     annotationProcessor 'org.projectlombok:lombok:1.18.24'
     compileOnly 'io.netty:netty-all:4.1.79.Final'
     compileOnly 'org.projectlombok:lombok:1.18.24'
+    implementation 'net.luckperms:api:5.3'
     implementation 'com.velocitypowered:velocity-api:3.0.0-SNAPSHOT'
 }
